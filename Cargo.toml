@@ -1,8 +1,11 @@
 [package]
 name = "uniproc-protocol"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
-ogurpchik = { git = "https://github.com/Tam1SH/oguRPChik", branch = "master", features = ["rkyv-codec"] }
-rkyv = { version = "0.8.14", features = ["bytecheck", "std"] }
+capnp = "0.27"
+capnp-rpc = "0.27"
+
+[build-dependencies]
+capnpc = "0.27"
