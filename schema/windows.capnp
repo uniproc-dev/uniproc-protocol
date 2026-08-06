@@ -27,6 +27,13 @@ enum ProcessPriority {
   realtime    @5;
 }
 
+enum SignatureStatus {
+  unknown    @0;
+  unsigned   @1;
+  microsoft  @2;
+  thirdParty @3;
+}
+
 struct Report {
   machine   @0 :MachineStats;
   processes @1 :List(ProcessStats);
@@ -69,4 +76,11 @@ struct ProcessStats {
 
   netRxBytes           @15 :UInt64;
   netTxBytes           @16 :UInt64;
+
+  isService            @17 :Bool;
+  hasVisibleWindow     @18 :Bool;
+  isKernelProcess      @19 :Bool;
+  isWindowsProcess     @20 :Bool;
+  signature            @21 :SignatureStatus;
+  imagePath            @22 :Text;
 }
