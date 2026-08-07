@@ -22,7 +22,7 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -31,6 +31,11 @@ jobs:
       # build.rs -> capnpc shells out to the `capnp` binary, which is not on
       # the runner image. Without this the build fails in build.rs.
       - name: Install Cap'n Proto
+      # Version is left to the runner image on purpose. Pinning an exact apt
+      # version is brittle - the pinned package disappears from the archive
+      # the moment Ubuntu publishes a security update, and the job starts
+      # failing with no commit behind it. The Windows jobs pin because choco
+      # keeps old versions around; apt does not.
         run: sudo apt-get update && sudo apt-get install -y capnproto
 
       - name: Build
