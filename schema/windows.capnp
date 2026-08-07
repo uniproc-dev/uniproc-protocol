@@ -83,4 +83,13 @@ struct ProcessStats {
   isWindowsProcess     @20 :Bool;
   signature            @21 :SignatureStatus;
   imagePath            @22 :Text;
+
+  # Human-facing name: the executable's FileDescription, a packaged app's
+  # manifest display name, or the shell's name for the file - whichever the
+  # agent could resolve. Empty when none of them answered, in which case the
+  # consumer should fall back to `name`.
+  #
+  # `name` stays exactly what the OS reports, so it remains usable for
+  # matching and grouping; this field is only ever for display.
+  displayName          @23 :Text;
 }
