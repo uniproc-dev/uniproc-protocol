@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancels a stale run when new commits land on the same branch/PR - avoids
+# burning CI minutes on a build for a diff that's already been superseded.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Single OS on purpose. Despite the windows.capnp / linux.capnp schema
+  # split, there is no platform-specific *Rust* here - src/ is one lib.rs
+  # with no `cfg(windows)`/`cfg(unix)` anywhere, and all the crate does is
+  # run capnpc over both schemas. A second runner would recompile identical
+  # code. Ubuntu is picked because `capnp` is one apt package there, versus
+  # a third-party Chocolatey package on Windows.
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # build.rs -> capnpc shells out to the `capnp` binary, which is not on
+      # the runner image. Without this the build fails in build.rs.
+      - name: Install Cap'n Proto
+        run: sudo apt-get update && sudo apt-get install -y capnproto
+
+      - name: Build
+        run: cargo build --all-targets
+
+      - name: Test
+        run: cargo test
