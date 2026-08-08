@@ -92,4 +92,11 @@ struct ProcessStats {
   # `name` stays exactly what the OS reports, so it remains usable for
   # matching and grouping; this field is only ever for display.
   displayName          @23 :Text;
+
+  # The process's *private* working set: resident pages it does not share
+  # with anyone. This is what Task Manager's Memory column shows, and the
+  # only one of the three that can be summed - workingSetKb counts a shared
+  # DLL once per process mapping it, so adding it up over a few hundred
+  # processes reports more memory in use than the machine has.
+  privateWorkingSetKb  @24 :UInt64;
 }
