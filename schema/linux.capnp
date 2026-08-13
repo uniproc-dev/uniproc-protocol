@@ -46,6 +46,8 @@ struct MachineStats {
   pipeReadBytes  @25 :UInt64;
   pipeWriteBytes @26 :UInt64;
   sendfileBytes  @27 :UInt64;
+
+  cpuCount       @28 :UInt32;
 }
 
 struct ProcessStats {
