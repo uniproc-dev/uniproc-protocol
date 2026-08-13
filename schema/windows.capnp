@@ -37,6 +37,32 @@ enum SignatureStatus {
 struct Report {
   machine   @0 :MachineStats;
   processes @1 :List(ProcessStats);
+  services  @2 :List(ServiceStats);
+}
+
+struct ServiceStats {
+  name         @0 :Text;
+  displayName  @1 :Text;
+  pid          @2 :UInt32;
+  state        @3 :ServiceState;
+  loadGroup    @4 :Text;
+  description  @5 :Text;
+
+  # Path the SCM starts the service from, taken from the service config.
+  # Needed to tell a Windows service from a third-party one; the app cannot
+  # read it for every service because it runs unelevated.
+  imagePath    @6 :Text;
+}
+
+enum ServiceState {
+  unknown       @0;
+  stopped       @1;
+  startPending  @2;
+  stopPending   @3;
+  running       @4;
+  continuePending @5;
+  pausePending  @6;
+  paused        @7;
 }
 
 struct MachineStats {
