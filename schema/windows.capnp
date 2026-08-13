@@ -78,11 +78,10 @@ struct ProcessStats {
   netTxBytes           @16 :UInt64;
 
   isService            @17 :Bool;
-  hasVisibleWindow     @18 :Bool;
-  isKernelProcess      @19 :Bool;
-  isWindowsProcess     @20 :Bool;
-  signature            @21 :SignatureStatus;
-  imagePath            @22 :Text;
+  isKernelProcess      @18 :Bool;
+  isWindowsProcess     @19 :Bool;
+  signature            @20 :SignatureStatus;
+  imagePath            @21 :Text;
 
   # Human-facing name: the executable's FileDescription, a packaged app's
   # manifest display name, or the shell's name for the file - whichever the
@@ -91,12 +90,12 @@ struct ProcessStats {
   #
   # `name` stays exactly what the OS reports, so it remains usable for
   # matching and grouping; this field is only ever for display.
-  displayName          @23 :Text;
+  displayName          @22 :Text;
 
   # The process's *private* working set: resident pages it does not share
   # with anyone. This is what Task Manager's Memory column shows, and the
   # only one of the three that can be summed - workingSetKb counts a shared
   # DLL once per process mapping it, so adding it up over a few hundred
   # processes reports more memory in use than the machine has.
-  privateWorkingSetKb  @24 :UInt64;
+  privateWorkingSetKb  @23 :UInt64;
 }
