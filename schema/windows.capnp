@@ -1,21 +1,26 @@
 @0xfd5a69cd561508f1;
 
+using Meta = import "meta.capnp";
+
 interface WindowsAgent {
-  ping           @0 () -> ();
-  getReport      @1 () -> (report :Report);
-  setConfig      @2 (memoryIntervalMs :UInt64, cpuIntervalMs :UInt64) -> ();
+  ping           @0 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta);
+  getReport      @1 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta, report :Report);
+  setConfig      @2 (meta :Meta.RequestMeta, memoryIntervalMs :UInt64, cpuIntervalMs :UInt64)
+                    -> (meta :Meta.ResponseMeta);
 
-  kill           @3 (pid :UInt32) -> (code :UInt32);
-  suspend        @4 (pid :UInt32) -> (code :UInt32);
-  resume         @5 (pid :UInt32) -> (code :UInt32);
-  setPriority    @6 (pid :UInt32, priority :ProcessPriority) -> (code :UInt32);
-  setAffinity    @7 (pid :UInt32, mask :UInt64) -> (code :UInt32);
+  kill           @3 (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
+  suspend        @4 (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
+  resume         @5 (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
+  setPriority    @6 (meta :Meta.RequestMeta, pid :UInt32, priority :ProcessPriority)
+                    -> (meta :Meta.ResponseMeta, code :UInt32);
+  setAffinity    @7 (meta :Meta.RequestMeta, pid :UInt32, mask :UInt64)
+                    -> (meta :Meta.ResponseMeta, code :UInt32);
 
-  serviceStart   @8  (name :Text) -> (code :UInt32);
-  serviceStop    @9  (name :Text) -> (code :UInt32);
-  servicePause   @10 (name :Text) -> (code :UInt32);
-  serviceResume  @11 (name :Text) -> (code :UInt32);
-  serviceRestart @12 (name :Text) -> (code :UInt32);
+  serviceStart   @8  (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  serviceStop    @9  (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  servicePause   @10 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  serviceResume  @11 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  serviceRestart @12 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
 }
 
 enum ProcessPriority {
@@ -80,6 +85,9 @@ struct MachineStats {
 
   netRxBytes          @10 :UInt64;
   netTxBytes          @11 :UInt64;
+
+  cpuInterruptPercent @12 :Float32;
+  cpuDpcPercent       @13 :Float32;
 }
 
 struct ProcessStats {

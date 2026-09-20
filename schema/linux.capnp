@@ -1,8 +1,10 @@
 @0xd0b00dd26d1a5151;
 
+using Meta = import "meta.capnp";
+
 interface LinuxAgent {
-  ping      @0 () -> ();
-  getReport @1 () -> (report :Report);
+  ping      @0 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta);
+  getReport @1 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta, report :Report);
 }
 
 struct Report {

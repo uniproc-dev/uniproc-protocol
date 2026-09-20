@@ -1,6 +1,6 @@
 [package]
 name = "uniproc-protocol"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 
 [dependencies]
@@ -8,4 +8,5 @@ capnp = "0.27"
 capnp-rpc = "0.27"
 
 [build-dependencies]
+capnp = "0.27"
 capnpc = "0.27"
