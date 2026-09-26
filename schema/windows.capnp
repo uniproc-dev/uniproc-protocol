@@ -44,6 +44,44 @@ interface WindowsAgent {
   servicePause      @13 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
   serviceResume     @14 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
   serviceRestart    @15 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+
+  # Calls watcher.changed with the service's status now, then on every change
+  # until `handle` is released. While a start, stop, pause or continue is
+  # pending, checkpoint and waitHintMs refresh too. watcher.ended is called
+  # when following stops: the service was deleted or never existed, or the
+  # agent is stopping.
+  watchService      @16 (meta :Meta.RequestMeta, name :Text, watcher :ServiceWatcher)
+                       -> (meta :Meta.ResponseMeta, handle :WatchHandle);
+}
+
+# Implemented by the client and called by the agent. `meta` is there because
+# every method in the protocol carries it; the agent sends it empty.
+interface ServiceWatcher {
+  changed @0 (meta :Meta.RequestMeta, status :ServiceStatus) -> ();
+  ended   @1 (meta :Meta.RequestMeta) -> ();
+}
+
+# Released by the client to stop watching; it has no methods.
+interface WatchHandle {}
+
+struct ServiceStatus {
+  state           @0 :ServiceState;
+
+  # 0 while the service has no process.
+  pid             @1 :UInt32;
+
+  # Win32 code the service stopped with.
+  exitCode        @2 :UInt32;
+
+  # The service's own code, meaningful when exitCode is
+  # ERROR_SERVICE_SPECIFIC_ERROR (1066).
+  serviceExitCode @3 :UInt32;
+
+  # Grows while a pending step makes progress.
+  checkpoint      @4 :UInt32;
+
+  # How long the service expects its pending step to take.
+  waitHintMs      @5 :UInt32;
 }
 
 enum ProcessPriority {
