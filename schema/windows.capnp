@@ -6,58 +6,238 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "1.0.0";
+const version :Text = "2.0.0";
+
+# Conventions for the whole protocol:
+#
+# - No data is a null pointer, an empty list or text, `unknown` in an enum, or 0
+#   where a field says so. The reason is not told apart: not implemented yet,
+#   not requested, or not permitted for this caller.
+# - Cumulative counters go out raw, as the OS keeps them. Rates and deltas are
+#   the consumer's, over its own interval.
+# - Bytes are bytes, not KiB. Durations and CPU times are in 100 ns units.
+# - `sampledAt` is QueryPerformanceCounter converted to 100 ns units: monotonic
+#   within one boot, meaningful only as a difference.
 
 interface WindowsAgent {
   # The agent returns `nonce` unchanged. A client puts the request's number
   # there and compares, so a reply that reached the wrong call is caught.
-  ping              @0  (meta :Meta.RequestMeta, nonce :UInt64)
-                       -> (meta :Meta.ResponseMeta, nonce :UInt64);
-  setConfig         @1  (meta :Meta.RequestMeta, memoryIntervalMs :UInt64, cpuIntervalMs :UInt64)
-                       -> (meta :Meta.ResponseMeta);
+  ping             @0  (meta :Meta.RequestMeta, nonce :UInt64)
+                      -> (meta :Meta.ResponseMeta, nonce :UInt64);
 
-  getMachine        @2  (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta, machine :MachineStats);
+  # Conditional: the passports only change when a process starts or exits, or
+  # when a service starts or stops, since ProcessInfo.isService is derived from
+  # the service inventory. The etag of this answer is the `passportEtag` every
+  # other process list refers to.
+  getProcesses     @1  (meta :Meta.RequestMeta)
+                      -> (meta :Meta.ResponseMeta, processes :List(ProcessInfo));
+
+  # Conditional, with its own etag: moves when any state below changes.
+  # `states` covers exactly the pids getProcesses returns under `passportEtag`.
+  getProcessStates @2  (meta :Meta.RequestMeta)
+                      -> (meta :Meta.ResponseMeta, passportEtag :UInt64, states :List(ProcessState));
 
   # Conditional: answers notModified while the inventory is unchanged.
-  getServices       @3  (meta :Meta.RequestMeta)
-                       -> (meta :Meta.ResponseMeta, services :List(ServiceStats));
+  getServices      @3  (meta :Meta.RequestMeta)
+                      -> (meta :Meta.ResponseMeta, services :List(ServiceStats));
 
-  # Conditional: the set of processes and their static details only changes
-  # when a process starts or exits, so this answers notModified most of the time.
-  getProcesses      @4  (meta :Meta.RequestMeta)
-                       -> (meta :Meta.ResponseMeta, processes :List(ProcessInfo));
+  # Starts sampling what `spec` asks for, until `sampler` is released. The
+  # agent samples the union of all live subscriptions at the shortest
+  # requested interval and answers each sampler with its own metrics only.
+  subscribe        @4  (meta :Meta.RequestMeta, spec :MetricSpec)
+                      -> (meta :Meta.ResponseMeta, sampler :Sampler);
 
-  # Always fresh. `processesEtag` is the getProcesses etag these metrics were
-  # sampled against, and `metrics` covers exactly the pids that getProcesses
-  # returns under that etag. A caller holding a different etag must refetch
-  # getProcesses before joining by pid, or a reused pid lands on the wrong name.
-  #
-  # The processes etag also moves when a service starts or stops, since
-  # ProcessInfo.isService is derived from the service inventory.
-  getProcessMetrics @5  (meta :Meta.RequestMeta)
-                       -> (meta :Meta.ResponseMeta, processesEtag :UInt64, metrics :List(ProcessMetrics));
+  kill             @5  (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
+  suspend          @6  (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
+  resume           @7  (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
+  setPriority      @8  (meta :Meta.RequestMeta, pid :UInt32, priority :ProcessPriority)
+                      -> (meta :Meta.ResponseMeta, code :UInt32);
+  setAffinity      @9  (meta :Meta.RequestMeta, pid :UInt32, mask :UInt64)
+                      -> (meta :Meta.ResponseMeta, code :UInt32);
 
-  kill              @6  (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
-  suspend           @7  (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
-  resume            @8  (meta :Meta.RequestMeta, pid :UInt32) -> (meta :Meta.ResponseMeta, code :UInt32);
-  setPriority       @9  (meta :Meta.RequestMeta, pid :UInt32, priority :ProcessPriority)
-                       -> (meta :Meta.ResponseMeta, code :UInt32);
-  setAffinity       @10 (meta :Meta.RequestMeta, pid :UInt32, mask :UInt64)
-                       -> (meta :Meta.ResponseMeta, code :UInt32);
-
-  serviceStart      @11 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
-  serviceStop       @12 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
-  servicePause      @13 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
-  serviceResume     @14 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
-  serviceRestart    @15 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  serviceStart     @10 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  serviceStop      @11 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  servicePause     @12 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  serviceResume    @13 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  serviceRestart   @14 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
 
   # Calls watcher.changed with the service's status now, then on every change
   # until `handle` is released. While a start, stop, pause or continue is
   # pending, checkpoint and waitHintMs refresh too. watcher.ended is called
   # when following stops: the service was deleted or never existed, or the
   # agent is stopping.
-  watchService      @16 (meta :Meta.RequestMeta, name :Text, watcher :ServiceWatcher)
-                       -> (meta :Meta.ResponseMeta, handle :WatchHandle);
+  watchService     @15 (meta :Meta.RequestMeta, name :Text, watcher :ServiceWatcher)
+                      -> (meta :Meta.ResponseMeta, handle :WatchHandle);
+}
+
+# What one subscription wants. To change it, subscribe again and release the
+# old sampler.
+struct MetricSpec {
+  # How often this subscriber wants a fresh snapshot.
+  intervalMs @0 :UInt32;
+  processes  @1 :List(ProcessMetric);
+  machine    @2 :List(MachineMetric);
+}
+
+# One subscription. Released by the client to stop; the agent then drops its
+# metrics from the union, and does the same when the connection goes away.
+interface Sampler {
+  # The latest snapshot of this subscription's metrics; the response etag is
+  # its snapshot number. A long poll: when ifNoneMatch equals the current
+  # snapshot, the answer is held until the next one is taken, so a client that
+  # always passes the last etag it got receives every snapshot once, paced by
+  # the agent. Dropping the call cancels the wait.
+  sample @0 (meta :Meta.RequestMeta)
+         -> (meta :Meta.ResponseMeta, processes :ProcessColumns, machine :MachineSample);
+}
+
+# One value per column, in ProcessColumns order.
+enum ProcessMetric {
+  cpuUserTime       @0;
+  cpuKernelTime     @1;
+  cpuCycles         @2;
+
+  workingSet        @3;
+  peakWorkingSet    @4;
+  privateWorkingSet @5;
+  commit            @6;
+  pagedPool         @7;
+  nonPagedPool      @8;
+  pageFaults        @9;
+
+  handles           @10;
+  threads           @11;
+  userObjects       @12;
+  gdiObjects        @13;
+
+  ioReadOps         @14;
+  ioWriteOps        @15;
+  ioOtherOps        @16;
+  ioReadBytes       @17;
+  ioWriteBytes      @18;
+  ioOtherBytes      @19;
+
+  diskReadOps       @20;
+  diskWriteOps      @21;
+  diskFlushOps      @22;
+  diskReadBytes     @23;
+  diskWriteBytes    @24;
+  netRxBytes        @25;
+  netTxBytes        @26;
+}
+
+# Process metrics as columns: `pids`, `sequenceNumbers` and every non-null
+# column have the same length, and row i of every column belongs to the same
+# process. A column is null when it was not requested or the agent has no data
+# for it.
+struct ProcessColumns {
+  snapshot          @0  :UInt64;
+  sampledAt         @1  :UInt64;
+
+  # The getProcesses etag these rows were sampled against: the rows are exactly
+  # the processes getProcesses returns under it. A different etag on the
+  # caller's side means its passports are stale and worth refetching; rows
+  # still join safely by sequence number, and a row whose sequence number has
+  # no passport yet waits for the next getProcesses.
+  passportEtag      @2  :UInt64;
+  pids              @3  :List(UInt32);
+
+  # ProcessInfo.sequenceNumber of each row: the join key, never reused within a
+  # boot. Always set when `pids` is.
+  sequenceNumbers   @4  :List(UInt64);
+
+  # Cumulative, 100 ns.
+  cpuUserTime       @5  :List(UInt64);
+  cpuKernelTime     @6  :List(UInt64);
+  # Cumulative.
+  cpuCycles         @7  :List(UInt64);
+
+  # Bytes, current. The shared working set is workingSet - privateWorkingSet.
+  workingSet        @8  :List(UInt64);
+  peakWorkingSet    @9  :List(UInt64);
+  privateWorkingSet @10 :List(UInt64);
+  commit            @11 :List(UInt64);
+  pagedPool         @12 :List(UInt64);
+  nonPagedPool      @13 :List(UInt64);
+  # Cumulative, and 32-bit in the kernel: take deltas modulo 2^32.
+  pageFaults        @14 :List(UInt32);
+
+  handles           @15 :List(UInt32);
+  threads           @16 :List(UInt32);
+  userObjects       @17 :List(UInt32);
+  gdiObjects        @18 :List(UInt32);
+
+  # All I/O the process issued (files, devices, pipes), cumulative.
+  ioReadOps         @19 :List(UInt64);
+  ioWriteOps        @20 :List(UInt64);
+  ioOtherOps        @21 :List(UInt64);
+  ioReadBytes       @22 :List(UInt64);
+  ioWriteBytes      @23 :List(UInt64);
+  ioOtherBytes      @24 :List(UInt64);
+
+  # Physical disk and network traffic attributed to the process, cumulative.
+  # The network counters start when the agent first saw the process, not at
+  # process start; deltas are unaffected.
+  diskReadOps       @25 :List(UInt64);
+  diskWriteOps      @26 :List(UInt64);
+  diskFlushOps      @27 :List(UInt64);
+  diskReadBytes     @28 :List(UInt64);
+  diskWriteBytes    @29 :List(UInt64);
+  netRxBytes        @30 :List(UInt64);
+  netTxBytes        @31 :List(UInt64);
+}
+
+# Machine data comes in groups; a group is null when it was not requested or
+# the agent has no data for it.
+enum MachineMetric {
+  cpu     @0;
+  memory  @1;
+  disk    @2;
+  network @3;
+}
+
+struct MachineSample {
+  snapshot  @0 :UInt64;
+  sampledAt @1 :UInt64;
+  cpu       @2 :MachineCpu;
+  memory    @3 :MachineMemory;
+  disk      @4 :MachineDisk;
+  network   @5 :MachineNetwork;
+}
+
+# Sums over every logical processor in every processor group. Kernel time
+# includes idle time, so busy time is kernel + user - idle, and kernel + user
+# is the total CPU time a process's own kernel + user is a share of.
+struct MachineCpu {
+  # Cumulative, 100 ns.
+  idleTime      @0 :UInt64;
+  kernelTime    @1 :UInt64;
+  userTime      @2 :UInt64;
+  interruptTime @3 :UInt64;
+  dpcTime       @4 :UInt64;
+
+  maxMhz        @5 :UInt32;
+  currentMhz    @6 :UInt32;
+}
+
+# Bytes, current.
+struct MachineMemory {
+  totalPhysical     @0 :UInt64;
+  availablePhysical @1 :UInt64;
+}
+
+# All physical disks together, cumulative.
+struct MachineDisk {
+  readOps    @0 :UInt64;
+  writeOps   @1 :UInt64;
+  readBytes  @2 :UInt64;
+  writeBytes @3 :UInt64;
+}
+
+# All network adapters together, cumulative.
+struct MachineNetwork {
+  rxBytes @0 :UInt64;
+  txBytes @1 :UInt64;
 }
 
 # Implemented by the client and called by the agent. `meta` is there because
@@ -90,13 +270,20 @@ struct ServiceStatus {
   waitHintMs      @5 :UInt32;
 }
 
+enum Toggle {
+  unknown @0;
+  off     @1;
+  on      @2;
+}
+
 enum ProcessPriority {
-  idle        @0;
-  belowNormal @1;
-  normal      @2;
-  aboveNormal @3;
-  high        @4;
-  realtime    @5;
+  unknown     @0;
+  idle        @1;
+  belowNormal @2;
+  normal      @3;
+  aboveNormal @4;
+  high        @5;
+  realtime    @6;
 }
 
 enum SignatureStatus {
@@ -104,6 +291,72 @@ enum SignatureStatus {
   unsigned   @1;
   microsoft  @2;
   thirdParty @3;
+}
+
+# The instruction set the process's code runs as, as Task Manager shows it.
+# `arm64X86Compatible` is CHPE and `arm64X64Compatible` is ARM64EC. 16, 32 or
+# 64-bit follows from it.
+enum Architecture {
+  unknown            @0;
+  x86                @1;
+  x64                @2;
+  arm                @3;
+  arm64              @4;
+  arm64X86Compatible @5;
+  arm64X64Compatible @6;
+}
+
+enum UacVirtualization {
+  unknown    @0;
+  notAllowed @1;
+  disabled   @2;
+  enabled    @3;
+}
+
+# Hardware-enforced stack protection (CET shadow stacks; return address
+# signing on ARM64): off, compatible modules only, or all modules, each of the
+# last two optionally in audit mode.
+enum StackProtection {
+  unknown         @0;
+  off             @1;
+  compatible      @2;
+  strict          @3;
+  compatibleAudit @4;
+  strictAudit     @5;
+}
+
+enum ExtendedCfg {
+  unknown @0;
+  off     @1;
+  audit   @2;
+  on      @3;
+}
+
+# `veryLow` is what Task Manager shows as Background.
+enum IoPriority {
+  unknown  @0;
+  veryLow  @1;
+  low      @2;
+  normal   @3;
+  high     @4;
+  critical @5;
+}
+
+enum DpiAwareness {
+  unknown         @0;
+  unaware         @1;
+  system          @2;
+  perMonitor      @3;
+  perMonitorV2    @4;
+  unawareGdiScaled @5;
+}
+
+enum Isolation {
+  unknown      @0;
+  none         @1;
+  appContainer @2;
+  uwp          @3;
+  silo         @4;
 }
 
 struct ServiceStats {
@@ -129,26 +382,6 @@ enum ServiceState {
   continuePending @5;
   pausePending  @6;
   paused        @7;
-}
-
-struct MachineStats {
-  totalPhysicalKb     @0 :UInt64;
-  availablePhysicalKb @1 :UInt64;
-  usedPhysicalKb      @2 :UInt64;
-  cpuPercent          @3 :Float32;
-  cpuMaxMhz           @4 :UInt64;
-  cpuCurrentMhz       @5 :UInt64;
-
-  diskReadBytes       @6 :UInt64;
-  diskWriteBytes      @7 :UInt64;
-  diskReadIops        @8 :UInt64;
-  diskWriteIops       @9 :UInt64;
-
-  netRxBytes          @10 :UInt64;
-  netTxBytes          @11 :UInt64;
-
-  cpuInterruptPercent @12 :Float32;
-  cpuDpcPercent       @13 :Float32;
 }
 
 # What a process is. Fixed for its lifetime, so it travels only through the
@@ -184,28 +417,60 @@ struct ProcessInfo {
   # else (usually the parent pid) and this field is 0. A later
   # FreeConsole/AttachConsole is not reflected.
   consoleHostPid       @13 :UInt32;
+
+  # Creation time as a FILETIME (100 ns since 1601, UTC). 0 when unknown.
+  startTime            @14 :UInt64;
+
+  # ProcessSequenceNumber: unique per process within one boot, so unlike the pid
+  # it is never reused. 0 only for the System Idle Process (pid 0), which joins
+  # by pid.
+  sequenceNumber       @15 :UInt64;
+
+  # DOMAIN\name of the token's user.
+  user                 @16 :Text;
+
+  # 32 or 64-bit follows from it: x86 is 32-bit.
+  architecture         @17 :Architecture;
+
+  elevated             @18 :Toggle;
+  uacVirtualization    @19 :UacVirtualization;
+  isolation            @20 :Isolation;
+  dpiAwareness         @21 :DpiAwareness;
+
+  # Null when the process could not be queried.
+  mitigations          @22 :Mitigations;
+
+  # A packaged app's PublisherDisplayName from its manifest, otherwise the
+  # signer's subject name.
+  publisher            @23 :Text;
 }
 
-# What a process is doing right now. Numbers only, joined to ProcessInfo by pid.
-struct ProcessMetrics {
-  pid                  @0 :UInt32;
-  cpuPercent           @1 :Float32;
-  workingSetKb         @2 :UInt64;
-  privateBytesKb       @3 :UInt64;
-  peakWorkingSetKb     @4 :UInt64;
+struct Mitigations {
+  dep             @0 :Toggle;
+  stackProtection @1 :StackProtection;
+  extendedCfg     @2 :ExtendedCfg;
+}
 
-  # The process's *private* working set: resident pages it does not share
-  # with anyone. This is what Task Manager's Memory column shows, and the
-  # only one of the three that can be summed - workingSetKb counts a shared
-  # DLL once per process mapping it, so adding it up over a few hundred
-  # processes reports more memory in use than the machine has.
-  privateWorkingSetKb  @5 :UInt64;
+# How a process is running right now. Changes rarely, so it travels through
+# the conditional getProcessStates.
+struct ProcessState {
+  pid             @0 :UInt32;
+  # ProcessInfo.sequenceNumber: the join key.
+  sequenceNumber  @1 :UInt64;
 
-  diskReadBytes        @6 :UInt64;
-  diskWriteBytes       @7 :UInt64;
-  diskReadIops         @8 :UInt64;
-  diskWriteIops        @9 :UInt64;
+  # Every thread is waiting with reason Suspended.
+  suspended       @2 :Toggle;
 
-  netRxBytes           @10 :UInt64;
-  netTxBytes           @11 :UInt64;
+  # Task Manager's efficiency mode: EcoQoS throttling together with the Idle
+  # priority class, as Task Manager sets it. It shows in the Status column.
+  efficiencyMode  @3 :Toggle;
+  basePriority    @4 :ProcessPriority;
+
+  # EcoQoS throttling on its own (EXECUTION_SPEED in the state mask); the
+  # Power throttling column.
+  powerThrottling @5 :Toggle;
+
+  # Kernel id of the job object the process belongs to, 0 when it is in none.
+  jobObjectId     @6 :UInt32;
+  ioPriority      @7 :IoPriority;
 }
