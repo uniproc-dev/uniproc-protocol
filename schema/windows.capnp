@@ -6,13 +6,16 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.0.0";
+const version :Text = "2.1.0";
 
 # Conventions for the whole protocol:
 #
 # - No data is a null pointer, an empty list or text, `unknown` in an enum, or 0
 #   where a field says so. The reason is not told apart: not implemented yet,
 #   not requested, or not permitted for this caller.
+# - In a column that has data, a single row without data holds the type's
+#   maximum (0xFFFFFFFF for UInt32, 0xFFFFFFFFFFFFFFFF for UInt64). A column
+#   that never has per-row gaps says so, and its maximum is an ordinary value.
 # - Cumulative counters go out raw, as the OS keeps them. Rates and deltas are
 #   the consumer's, over its own interval.
 # - Bytes are bytes, not KiB. Durations and CPU times are in 100 ns units.
@@ -33,7 +36,8 @@ interface WindowsAgent {
                       -> (meta :Meta.ResponseMeta, processes :List(ProcessInfo));
 
   # Conditional, with its own etag: moves when any state below changes.
-  # `states` covers exactly the pids getProcesses returns under `passportEtag`.
+  # `states` covers exactly the pids getProcesses returns under `passportEtag`,
+  # which names the latest list with the same membership (see ProcessColumns).
   getProcessStates @2  (meta :Meta.RequestMeta)
                       -> (meta :Meta.ResponseMeta, passportEtag :UInt64, states :List(ProcessState));
 
@@ -135,7 +139,10 @@ struct ProcessColumns {
   sampledAt         @1  :UInt64;
 
   # The getProcesses etag these rows were sampled against: the rows are exactly
-  # the processes getProcesses returns under it. A different etag on the
+  # the processes getProcesses returns under it. It names the latest list with
+  # the same membership, so a list re-issued without a process starting or
+  # exiting (enrichment finishing, a service's pid changing isService) restamps
+  # it without a new sample. A different etag on the
   # caller's side means its passports are stale and worth refetching; rows
   # still join safely by sequence number, and a row whose sequence number has
   # no passport yet waits for the next getProcesses.
@@ -159,11 +166,15 @@ struct ProcessColumns {
   commit            @11 :List(UInt64);
   pagedPool         @12 :List(UInt64);
   nonPagedPool      @13 :List(UInt64);
-  # Cumulative, and 32-bit in the kernel: take deltas modulo 2^32.
+  # Cumulative, and 32-bit in the kernel: take deltas modulo 2^32. Never has
+  # per-row gaps.
   pageFaults        @14 :List(UInt32);
 
   handles           @15 :List(UInt32);
   threads           @16 :List(UInt32);
+
+  # win32k answers only within the querying session, so rows from a session
+  # the agent cannot query hold 0xFFFFFFFF.
   userObjects       @17 :List(UInt32);
   gdiObjects        @18 :List(UInt32);
 
