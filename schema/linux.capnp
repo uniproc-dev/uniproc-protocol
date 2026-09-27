@@ -2,6 +2,9 @@
 
 using Meta = import "meta.capnp";
 
+# Semantic version of this protocol; see windows.capnp for the rules.
+const version :Text = "1.0.0";
+
 interface LinuxAgent {
   ping      @0 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta);
   getReport @1 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta, report :Report);

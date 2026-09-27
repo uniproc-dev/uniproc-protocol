@@ -2,6 +2,12 @@
 
 using Meta = import "meta.capnp";
 
+# Semantic version of this protocol, sent in the handshake next to the file id.
+# Appending fields, methods or enumerants is a minor bump; anything else that
+# changes the wire is a major one, and peers on different majors refuse each
+# other. tests/wire_compat.rs holds every change against the last tag.
+const version :Text = "1.0.0";
+
 interface WindowsAgent {
   # The agent returns `nonce` unchanged. A client puts the request's number
   # there and compares, so a reply that reached the wrong call is caught.

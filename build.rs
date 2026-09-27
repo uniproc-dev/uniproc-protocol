@@ -3,9 +3,9 @@ use std::process::Command;
 
 const META: &str = "schema/meta.capnp";
 
-const SCHEMAS: &[(&str, &str)] = &[
-    ("WINDOWS_SCHEMA_ID", "schema/windows.capnp"),
-    ("LINUX_SCHEMA_ID", "schema/linux.capnp"),
+const LINKS: &[(&str, &str)] = &[
+    ("WINDOWS_PROTOCOL", "schema/windows.capnp"),
+    ("LINUX_PROTOCOL", "schema/linux.capnp"),
 ];
 
 fn main() {
@@ -13,46 +13,45 @@ fn main() {
 
     let mut command = capnpc::CompilerCommand::new();
     command.src_prefix("schema").file(META);
-
-    let mut ids = String::new();
-    for (name, path) in SCHEMAS {
+    for (_, path) in LINKS {
         command.file(path);
         println!("cargo:rerun-if-changed={path}");
-        ids.push_str(&format!(
-            "/// Identity of `{path}` together with the shared `{META}` it imports;\n\
-             /// pass it to the handshake on both ends of the link.\n\
-             pub const {name}: u64 = 0x{:016x};\n",
-            schema_hash(&[META, path])
-        ));
     }
-
     command
         .run()
         .expect("capnp schema compilation failed; is the `capnp` binary installed?");
 
-    check_every_method_carries_meta();
+    let request = code_generator_request();
+    let message = capnp::serialize::read_message_from_flat_slice(
+        &mut request.as_slice(),
+        capnp::message::ReaderOptions::new(),
+    )
+    .expect("failed to read the code generator request");
+    let request = message
+        .get_root::<capnp::schema_capnp::code_generator_request::Reader>()
+        .expect("code generator request has no root");
+
+    check_every_method_carries_meta(request);
+
+    let mut protocols = String::new();
+    for (name, path) in LINKS {
+        let (id, [major, minor, patch]) = protocol_of(request, path);
+        protocols.push_str(&format!(
+            "/// `{path}`: its file id and the `version` it declares.\n\
+             pub const {name}: ProtocolInfo = ProtocolInfo {{ id: 0x{id:016x}, major: {major}, minor: {minor}, patch: {patch} }};\n"
+        ));
+    }
 
     let out_dir = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR for build scripts");
-    std::fs::write(Path::new(&out_dir).join("schema_ids.rs"), ids)
-        .expect("failed to write schema ids");
+    std::fs::write(Path::new(&out_dir).join("protocols.rs"), protocols)
+        .expect("failed to write protocol constants");
 }
 
-fn schema_hash(paths: &[&str]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for path in paths {
-        let text = std::fs::read_to_string(path).expect("failed to read schema file");
-        for byte in text.replace("\r\n", "\n").bytes() {
-            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-    hash
-}
-
-fn check_every_method_carries_meta() {
+fn code_generator_request() -> Vec<u8> {
     let mut command = Command::new("capnp");
     command.arg("compile").arg("-o-").arg("--src-prefix=schema");
     command.arg(META);
-    for (_, path) in SCHEMAS {
+    for (_, path) in LINKS {
         command.arg(path);
     }
 
@@ -64,16 +63,53 @@ fn check_every_method_carries_meta() {
         "`capnp compile` failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    output.stdout
+}
 
-    let message = capnp::serialize::read_message_from_flat_slice(
-        &mut output.stdout.as_slice(),
-        capnp::message::ReaderOptions::new(),
-    )
-    .expect("failed to read the code generator request");
-    let request = message
-        .get_root::<capnp::schema_capnp::code_generator_request::Reader>()
-        .expect("code generator request has no root");
+fn protocol_of(
+    request: capnp::schema_capnp::code_generator_request::Reader,
+    path: &str,
+) -> (u64, [u32; 3]) {
+    let file = path.strip_prefix("schema/").expect("links live under schema/");
+    let file_id = request
+        .get_requested_files()
+        .expect("request lists its files")
+        .iter()
+        .find(|f| f.get_filename().map(|n| n == file).unwrap_or(false))
+        .unwrap_or_else(|| panic!("{file} is not in the request"))
+        .get_id();
 
+    let const_name = format!("{file}:version");
+    let version = request
+        .get_nodes()
+        .expect("request carries nodes")
+        .iter()
+        .find(|node| node.get_display_name().map(|n| n == const_name.as_str()).unwrap_or(false))
+        .unwrap_or_else(|| panic!("{path} must declare `const version :Text = \"MAJOR.MINOR.PATCH\";`"));
+    let capnp::schema_capnp::node::Const(constant) = version.which().expect("known node kind") else {
+        panic!("{const_name} must be a const");
+    };
+    let capnp::schema_capnp::value::Text(text) = constant
+        .get_value()
+        .expect("const has a value")
+        .which()
+        .expect("known value kind")
+    else {
+        panic!("{const_name} must be Text");
+    };
+    let text = text.expect("version text").to_str().expect("version is utf-8");
+
+    let parts: Vec<u32> = text
+        .split('.')
+        .map(|part| part.parse().unwrap_or_else(|_| panic!("{const_name} = {text:?} is not MAJOR.MINOR.PATCH")))
+        .collect();
+    let [major, minor, patch] = parts[..] else {
+        panic!("{const_name} = {text:?} is not MAJOR.MINOR.PATCH");
+    };
+    (file_id, [major, minor, patch])
+}
+
+fn check_every_method_carries_meta(request: capnp::schema_capnp::code_generator_request::Reader) {
     let nodes = request.get_nodes().expect("request carries no nodes");
     let find = |id: u64| {
         nodes

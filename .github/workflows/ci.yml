@@ -22,7 +22,11 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
+      # tests/wire_compat.rs compares the schema with the last tag, so it
+      # needs the history and the tags, not a shallow clone.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
