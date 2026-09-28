@@ -6,7 +6,7 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.2.0";
+const version :Text = "2.3.0";
 
 # Conventions for the whole protocol:
 #
@@ -195,6 +195,15 @@ enum ProcessMetric {
   diskWriteBytes    @24;
   netRxBytes        @25;
   netTxBytes        @26;
+
+  virtualSize       @27;
+  peakVirtualSize   @28;
+  peakCommit        @29;
+  peakPagedPool     @30;
+  peakNonPagedPool  @31;
+  hardFaults        @32;
+  peakThreads       @33;
+  contextSwitches   @34;
 }
 
 # Process metrics as columns: `pids`, `sequenceNumbers` and every non-null
@@ -263,6 +272,26 @@ struct ProcessColumns {
   diskWriteBytes    @29 :List(UInt64);
   netRxBytes        @30 :List(UInt64);
   netTxBytes        @31 :List(UInt64);
+
+  # Bytes of address space, current and peak. Includes reservations, so a
+  # 64-bit process shows terabytes.
+  virtualSize       @32 :List(UInt64);
+  peakVirtualSize   @33 :List(UInt64);
+
+  # Bytes, the peaks of commit, pagedPool and nonPagedPool.
+  peakCommit        @34 :List(UInt64);
+  peakPagedPool     @35 :List(UInt64);
+  peakNonPagedPool  @36 :List(UInt64);
+
+  # Page faults served from disk. Cumulative and 32-bit in the kernel, like
+  # pageFaults: take deltas modulo 2^32. Never has per-row gaps.
+  hardFaults        @37 :List(UInt32);
+
+  # The most threads the process has had at once.
+  peakThreads       @38 :List(UInt32);
+
+  # Over all the process's threads, exited ones included; cumulative.
+  contextSwitches   @39 :List(UInt64);
 }
 
 # Machine data comes in groups; a group is null when it was not requested or
@@ -272,6 +301,8 @@ enum MachineMetric {
   memory  @1;
   disk    @2;
   network @3;
+
+  processors @4;
 }
 
 struct MachineSample {
@@ -281,6 +312,19 @@ struct MachineSample {
   memory    @3 :MachineMemory;
   disk      @4 :MachineDisk;
   network   @5 :MachineNetwork;
+
+  # One entry per logical processor: group 0 first, processor order within a
+  # group. Their sums are MachineCpu's times.
+  processors @6 :List(MachineProcessor);
+}
+
+# Cumulative, 100 ns; kernel time includes idle time, as in MachineCpu.
+struct MachineProcessor {
+  idleTime      @0 :UInt64;
+  kernelTime    @1 :UInt64;
+  userTime      @2 :UInt64;
+  interruptTime @3 :UInt64;
+  dpcTime       @4 :UInt64;
 }
 
 # Sums over every logical processor in every processor group. Kernel time
@@ -302,6 +346,10 @@ struct MachineCpu {
 struct MachineMemory {
   totalPhysical     @0 :UInt64;
   availablePhysical @1 :UInt64;
+
+  # The commit limit (RAM plus page files) and the commit charge now.
+  commitLimit       @2 :UInt64;
+  committed         @3 :UInt64;
 }
 
 # All physical disks together, cumulative.
