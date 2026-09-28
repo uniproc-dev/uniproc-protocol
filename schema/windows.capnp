@@ -6,7 +6,7 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.3.0";
+const version :Text = "2.4.0";
 
 # Conventions for the whole protocol:
 #
@@ -204,6 +204,10 @@ enum ProcessMetric {
   hardFaults        @32;
   peakThreads       @33;
   contextSwitches   @34;
+
+  gpuDedicated      @35;
+  gpuShared         @36;
+  gpuEngines        @37;
 }
 
 # Process metrics as columns: `pids`, `sequenceNumbers` and every non-null
@@ -292,6 +296,32 @@ struct ProcessColumns {
 
   # Over all the process's threads, exited ones included; cumulative.
   contextSwitches   @39 :List(UInt64);
+
+  # Bytes the process has committed on the hardware adapters, summed over
+  # them: in the adapters' own memory (dedicated) and in system memory they
+  # map (shared); the PDH counters GPU Process Memory Local Usage and Shared
+  # Usage. 0 for a process without a GPU context.
+  gpuDedicated      @40 :List(UInt64);
+  gpuShared         @41 :List(UInt64);
+
+  # Sparse: one entry per process and engine it has run on; processes that
+  # never ran on an engine have none. A process the agent could not query has
+  # none either, and holds the maximum in gpuDedicated, which tells the two
+  # apart. Task Manager's GPU column is the busiest engine's share of wall
+  # time over an interval, and its GPU engine column names that engine.
+  gpuEngines        @42 :List(ProcessGpuEngine);
+}
+
+struct ProcessGpuEngine {
+  # Index into pids / sequenceNumbers of the same ProcessColumns.
+  row         @0 :UInt32;
+
+  # GpuAdapter.luid and GpuEngine.ordinal in the machine's gpus.
+  adapterLuid @1 :UInt64;
+  engine      @2 :UInt32;
+
+  # Cumulative, 100 ns, raw as the kernel keeps it: deltas modulo 2^64.
+  runningTime @3 :UInt64;
 }
 
 # Machine data comes in groups; a group is null when it was not requested or
@@ -303,6 +333,7 @@ enum MachineMetric {
   network @3;
 
   processors @4;
+  gpu        @5;
 }
 
 struct MachineSample {
@@ -316,6 +347,64 @@ struct MachineSample {
   # One entry per logical processor: group 0 first, processor order within a
   # group. Their sums are MachineCpu's times.
   processors @6 :List(MachineProcessor);
+
+  # Hardware adapters only; the Microsoft Basic Render Driver is left out.
+  gpus       @7 :List(GpuAdapter);
+}
+
+struct GpuAdapter {
+  # HighPart << 32 | LowPart. Stable while the adapter is present; a driver
+  # restart can change it, and its counters then start over.
+  luid            @0 :UInt64;
+  name            @1 :Text;
+
+  # Bytes. Dedicated is the adapter's own memory, shared the system memory it
+  # can map; usage is what Task Manager's Performance page shows.
+  dedicatedLimit  @2 :UInt64;
+  dedicatedUsage  @3 :UInt64;
+  sharedLimit     @4 :UInt64;
+  sharedUsage     @5 :UInt64;
+
+  # From the driver, 0 when it does not report them. Temperature in tenths of
+  # a degree Celsius, power in tenths of a percent of the adapter's maximum,
+  # memory frequency in Hz.
+  temperature     @6 :UInt32;
+  fanRpm          @7 :UInt32;
+  power           @8 :UInt32;
+  memoryFrequency @9 :UInt64;
+
+  engines         @10 :List(GpuEngine);
+}
+
+struct GpuEngine {
+  # The node ordinal; ProcessGpuEngine.engine refers to it.
+  ordinal      @0 :UInt32;
+  type         @1 :GpuEngineType;
+
+  # The driver's name for it, often empty; Task Manager then names it by type
+  # ("3D", "Copy", "Video Decode").
+  name         @2 :Text;
+
+  # Cumulative, 100 ns, all processes together: deltas modulo 2^64.
+  runningTime  @3 :UInt64;
+
+  # Hz, current and maximum; 0 when the driver does not report them.
+  frequency    @4 :UInt64;
+  maxFrequency @5 :UInt64;
+}
+
+# DXGK_ENGINE_TYPE, with the same values.
+enum GpuEngineType {
+  other           @0;
+  threeD          @1;
+  videoDecode     @2;
+  videoEncode     @3;
+  videoProcessing @4;
+  sceneAssembly   @5;
+  copy            @6;
+  overlay         @7;
+  crypto          @8;
+  videoCodec      @9;
 }
 
 # Cumulative, 100 ns; kernel time includes idle time, as in MachineCpu.
