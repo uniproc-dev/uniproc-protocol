@@ -6,7 +6,7 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.4.0";
+const version :Text = "2.4.1";
 
 # Conventions for the whole protocol:
 #
@@ -348,7 +348,8 @@ struct MachineSample {
   # group. Their sums are MachineCpu's times.
   processors @6 :List(MachineProcessor);
 
-  # Hardware adapters only; the Microsoft Basic Render Driver is left out.
+  # Render adapters only: the Microsoft Basic Render Driver is left out, and
+  # compute-only adapters such as NPUs are not enumerated.
   gpus       @7 :List(GpuAdapter);
 }
 
@@ -385,11 +386,18 @@ struct GpuEngine {
   # ("3D", "Copy", "Video Decode").
   name         @2 :Text;
 
-  # Cumulative, 100 ns, all processes together: deltas modulo 2^64.
+  # 100 ns: the sum over processes of the time they ran on this engine,
+  # counted from when the agent first read it; the kernel's own per-engine
+  # counter costs milliseconds per read in the driver. The absolute value
+  # means nothing: take deltas modulo 2^64. A process that exits between two
+  # reads loses what it ran since the last one. Task Manager's per-engine
+  # graph is a per-process sum too.
   runningTime  @3 :UInt64;
 
-  # Hz, current and maximum; 0 when the driver does not report them.
+  # Not read, always 0: each read costs about a millisecond in the driver.
   frequency    @4 :UInt64;
+
+  # Hz, read once per adapter; 0 when the driver does not report it.
   maxFrequency @5 :UInt64;
 }
 
