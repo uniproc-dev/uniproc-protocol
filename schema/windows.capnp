@@ -6,7 +6,7 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.1.0";
+const version :Text = "2.2.0";
 
 # Conventions for the whole protocol:
 #
@@ -72,6 +72,73 @@ interface WindowsAgent {
   # agent is stopping.
   watchService     @15 (meta :Meta.RequestMeta, name :Text, watcher :ServiceWatcher)
                       -> (meta :Meta.ResponseMeta, handle :WatchHandle);
+
+  # Pushes this subscription's snapshots to `listener` until `handle` is
+  # released or the connection goes away; a push replacing the Sampler's long
+  # poll. The first update carries the full lists; every later one carries what
+  # moved since the update before, and its sample refers to the lists as they
+  # stand after that update. One call is in flight at a time: while the
+  # listener has not returned, newer samples replace older ones and list
+  # changes accumulate, so a slow listener gets fewer calls, never a gap. Paced
+  # at spec.intervalMs, like subscribe. An error returned by the listener ends
+  # the watch.
+  watch            @16 (meta :Meta.RequestMeta, spec :MetricSpec, listener :AgentListener)
+                      -> (meta :Meta.ResponseMeta, handle :WatchHandle);
+}
+
+# Implemented by the client and called by the agent, like ServiceWatcher.
+interface AgentListener {
+  update @0 (meta :Meta.RequestMeta, lists :ListsUpdate,
+             processes :ProcessColumns, machine :MachineSample) -> ();
+
+  # The watch stopped for good: the agent is stopping.
+  ended  @1 (meta :Meta.RequestMeta) -> ();
+}
+
+# What changed in the conditional lists since the previous update. Rows are
+# keyed by sequenceNumber. The etags are always set and name the lists after
+# this update: `passportEtag` is the one `processes` in the same update refers to.
+struct ListsUpdate {
+  passports :union {
+    unchanged @0 :Void;
+    full      @1 :List(ProcessInfo);
+    delta     @2 :PassportsDelta;
+  }
+  passportEtag @3 :UInt64;
+
+  states :union {
+    unchanged @4 :Void;
+    full      @5 :List(ProcessState);
+    delta     @6 :StatesDelta;
+  }
+  statesEtag @7 :UInt64;
+
+  services :union {
+    unchanged @8 :Void;
+    full      @9 :List(ServiceStats);
+  }
+  servicesEtag @10 :UInt64;
+}
+
+# Applies to the passports under `baseEtag`. A client holding another etag
+# resyncs through getProcesses, or releases the watch and watches again. A
+# restamp without a membership change is a delta with both lists empty.
+struct PassportsDelta {
+  baseEtag @0 :UInt64;
+
+  # Sequence numbers of processes that exited. Changes accumulated while the
+  # listener was busy may name a process the client never received; ignore it.
+  left     @1 :List(UInt64);
+
+  # Processes that started or whose passport changed, as whole rows.
+  upserted @2 :List(ProcessInfo);
+}
+
+# Applies to the states under `baseEtag`, like PassportsDelta.
+struct StatesDelta {
+  baseEtag @0 :UInt64;
+  left     @1 :List(UInt64);
+  upserted @2 :List(ProcessState);
 }
 
 # What one subscription wants. To change it, subscribe again and release the
