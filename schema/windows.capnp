@@ -6,7 +6,7 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.5.1";
+const version :Text = "2.5.2";
 
 # Conventions for the whole protocol:
 #
@@ -46,8 +46,12 @@ interface WindowsAgent {
                       -> (meta :Meta.ResponseMeta, services :List(ServiceStats));
 
   # Starts sampling what `spec` asks for, until `sampler` is released. The
-  # agent samples the union of all live subscriptions at the shortest
-  # requested interval and answers each sampler with its own metrics only.
+  # agent samples each live subscription at its own interval and answers it
+  # with its own metrics only; a tick reads only what is due then. A spec with
+  # machine groups and no process metrics does not read the process list: its
+  # samples carry no rows. The list is read for the specs that ask for a
+  # process metric or for no metric at all, and every few seconds when none
+  # does.
   subscribe        @4  (meta :Meta.RequestMeta, spec :MetricSpec)
                       -> (meta :Meta.ResponseMeta, sampler :Sampler);
 
@@ -150,8 +154,8 @@ struct MetricSpec {
   machine    @2 :List(MachineMetric);
 }
 
-# One subscription. Released by the client to stop; the agent then drops its
-# metrics from the union, and does the same when the connection goes away.
+# One subscription. Released by the client to stop; the agent then stops
+# sampling it, and does the same when the connection goes away.
 interface Sampler {
   # The latest snapshot of this subscription's metrics; the response etag is
   # its snapshot number. A long poll: when ifNoneMatch equals the current
