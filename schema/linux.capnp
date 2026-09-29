@@ -3,7 +3,7 @@
 using Meta = import "meta.capnp";
 
 # Semantic version of this protocol; see windows.capnp for the rules.
-const version :Text = "2.0.1";
+const version :Text = "2.1.0";
 
 # Conventions, the same as windows.capnp's:
 #
@@ -89,6 +89,35 @@ interface LinuxAgent {
   # Applies to every thread. Bit n of word n / 64 allows CPU n.
   setAffinity      @11 (meta :Meta.RequestMeta, pid :UInt32, sequenceNumber :UInt64, mask :List(UInt64))
                       -> (meta :Meta.ResponseMeta, code :UInt32);
+
+  # Conditional: the units of the system manager (systemd, pid 1 of the
+  # agent's distro), every loaded one and every installed unit file that is
+  # not loaded, templates excepted. Moves when a unit's state, job or main
+  # process changes, and when unit files change. Empty when the distro does
+  # not run systemd.
+  getUnits         @12 (meta :Meta.RequestMeta)
+                      -> (meta :Meta.ResponseMeta, units :List(UnitInfo));
+
+  # Unit commands queue a job with mode "replace", as systemctl does, and
+  # answer once it is queued; how it ends shows in the unit's state. `name`
+  # is the full unit name, suffix included. `code` is 0 or an errno:
+  # 2 (ENOENT) no such unit, 13 (EACCES) not permitted, 16 (EBUSY) another
+  # command for the same unit is still being handed to systemd,
+  # 53 (EBADR) the job does not apply to the unit, as reload to a unit that
+  # cannot reload, 132 (ERFKILL) the unit is masked, 35 (EDEADLK) the job
+  # conflicts with jobs queued already, 107 (ENOTCONN) the agent has no
+  # connection to systemd, 5 (EIO) anything else.
+  unitStart        @13 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  unitStop         @14 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  unitRestart      @15 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+  unitReload       @16 (meta :Meta.RequestMeta, name :Text) -> (meta :Meta.ResponseMeta, code :UInt32);
+
+  # Calls watcher.changed with the unit's status now, then on every change
+  # until `handle` is released. watcher.ended is called when following
+  # stops: no unit or unit file has the name, the unit was unloaded and its
+  # file removed, or the agent is stopping.
+  watchUnit        @17 (meta :Meta.RequestMeta, name :Text, watcher :UnitWatcher)
+                      -> (meta :Meta.ResponseMeta, handle :WatchHandle);
 }
 
 # Implemented by the client and called by the agent. The agent sends `meta` empty.
@@ -127,6 +156,13 @@ struct ListsUpdate {
     full      @9 :Environments;
   }
   environmentsEtag @10 :UInt64;
+
+  # The list getUnits answers, under the same etag.
+  units :union {
+    unchanged @11 :Void;
+    full      @12 :List(UnitInfo);
+  }
+  unitsEtag @13 :UInt64;
 }
 
 struct Environments {
@@ -495,4 +531,110 @@ struct DockerContainerInfo {
   apiVersion @3 :Text;
   # The Engine API's inspect answer for the container, verbatim.
   rawJson    @4 :Text;
+}
+
+# Implemented by the client and called by the agent. The agent sends `meta` empty.
+interface UnitWatcher {
+  changed @0 (meta :Meta.RequestMeta, status :UnitStatus) -> ();
+  ended   @1 (meta :Meta.RequestMeta) -> ();
+}
+
+struct UnitInfo {
+  # The full unit name, "ssh.service"; its suffix is the unit type.
+  name               @0 :Text;
+  description        @1 :Text;
+  loadState          @2 :UnitLoadState;
+  activeState        @3 :UnitActiveState;
+  # The type's own finer state, as systemctl shows it: "running", "exited",
+  # "dead", "listening", "mounted", "waiting"...
+  subState           @4 :Text;
+  # How the unit file is installed, when there is one.
+  unitFileState      @5 :UnitFileState;
+  # The installed unit file named after the unit, as systemctl
+  # list-unit-files gives it. Empty for a unit without one: a device, a
+  # scope, a transient unit, a mount from fstab.
+  unitFile           @6 :Text;
+  # A service's main process, as ProcessInfo names it; 0 and 0 when it has
+  # none, and for other unit types.
+  mainPid            @7 :UInt32;
+  mainSequenceNumber @8 :UInt64;
+  # The job queued for the unit, `none` when there is none.
+  job                @9 :UnitJob;
+}
+
+# What watchUnit tells about one unit.
+struct UnitStatus {
+  loadState          @0 :UnitLoadState;
+  activeState        @1 :UnitActiveState;
+  subState           @2 :Text;
+  mainPid            @3 :UInt32;
+  mainSequenceNumber @4 :UInt64;
+  job                @5 :UnitJob;
+  # A service's result of its last run: "success", "exit-code", "signal",
+  # "core-dump", "timeout", "watchdog", "start-limit-hit"... Empty for other
+  # unit types.
+  result             @6 :Text;
+  # How the service's main process last ended, as waitid reports it:
+  # 1 (CLD_EXITED) with the exit status in execMainStatus, 2 (CLD_KILLED) or
+  # 3 (CLD_DUMPED) with the signal number. 0 while it has not ended.
+  execMainCode       @7 :UInt32;
+  execMainStatus     @8 :Int32;
+  # Times systemd restarted the service by its Restart= setting.
+  restarts           @9 :UInt32;
+}
+
+enum UnitLoadState {
+  unknown     @0;
+  loaded      @1;
+  notFound    @2;
+  badSetting  @3;
+  error       @4;
+  merged      @5;
+  masked      @6;
+  stub        @7;
+  # An installed unit file systemd has not loaded: nothing needs the unit
+  # now. It loads when a command or a dependency asks for it.
+  unloaded    @8;
+}
+
+enum UnitActiveState {
+  unknown      @0;
+  active       @1;
+  reloading    @2;
+  inactive     @3;
+  failed       @4;
+  activating   @5;
+  deactivating @6;
+  maintenance  @7;
+  refreshing   @8;
+}
+
+enum UnitFileState {
+  unknown        @0;
+  enabled        @1;
+  enabledRuntime @2;
+  linked         @3;
+  linkedRuntime  @4;
+  alias          @5;
+  masked         @6;
+  maskedRuntime  @7;
+  static         @8;
+  disabled       @9;
+  indirect       @10;
+  generated      @11;
+  transient      @12;
+  bad            @13;
+}
+
+enum UnitJob {
+  unknown       @0;
+  none          @1;
+  start         @2;
+  verifyActive  @3;
+  stop          @4;
+  reload        @5;
+  restart       @6;
+  tryRestart    @7;
+  tryReload     @8;
+  reloadOrStart @9;
 }
