@@ -6,7 +6,7 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.4.1";
+const version :Text = "2.5.0";
 
 # Conventions for the whole protocol:
 #
@@ -334,6 +334,7 @@ enum MachineMetric {
 
   processors @4;
   gpu        @5;
+  networkAdapters @6;
 }
 
 struct MachineSample {
@@ -351,6 +352,37 @@ struct MachineSample {
   # Render adapters only: the Microsoft Basic Render Driver is left out, and
   # compute-only adapters such as NPUs are not enumerated.
   gpus       @7 :List(GpuAdapter);
+
+  # The adapters that are up, minus loopback, tunnels and the NDIS filter
+  # layers stacked on an adapter, which repeat its counters.
+  networkAdapters @8 :List(NetworkAdapter);
+}
+
+struct NetworkAdapter {
+  # NET_LUID; stable while the adapter exists.
+  luid              @0 :UInt64;
+
+  # The connection's name as the Network Connections folder shows it
+  # ("Ethernet", "Wi-Fi"), and the driver's name for the device.
+  name              @1 :Text;
+  description       @2 :Text;
+
+  # IANA ifType: 6 is Ethernet, 71 is Wi-Fi, 53 a vendor's virtual adapter.
+  ifType            @3 :UInt32;
+
+  # A physical adapter, as opposed to a virtual switch, a VM host-only
+  # adapter or a VPN. A sum over all adapters counts forwarded traffic twice:
+  # a VM's traffic through vEthernet and again through the physical NIC.
+  hardware          @4 :Bool;
+
+  # Bits per second, as the driver reports them now.
+  receiveLinkSpeed  @5 :UInt64;
+  transmitLinkSpeed @6 :UInt64;
+
+  # Bytes, cumulative, as the adapter counts them: every protocol and header,
+  # unlike MachineNetwork's TCP and UDP payload.
+  rxBytes           @7 :UInt64;
+  txBytes           @8 :UInt64;
 }
 
 struct GpuAdapter {
@@ -457,7 +489,8 @@ struct MachineDisk {
   writeBytes @3 :UInt64;
 }
 
-# All network adapters together, cumulative.
+# TCP and UDP payload over the whole machine, cumulative. Per-adapter traffic,
+# headers included, is in MachineSample.networkAdapters.
 struct MachineNetwork {
   rxBytes @0 :UInt64;
   txBytes @1 :UInt64;
