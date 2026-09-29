@@ -3,7 +3,7 @@
 using Meta = import "meta.capnp";
 
 # Semantic version of this protocol; see windows.capnp for the rules.
-const version :Text = "2.0.0";
+const version :Text = "2.0.1";
 
 # Conventions, the same as windows.capnp's:
 #
@@ -22,8 +22,10 @@ const version :Text = "2.0.0";
 # - Counters the agent's own probes keep (cpuRunTime is not one of them) start
 #   when the agent first sees a process, and start over when the agent
 #   restarts; a delta across a reconnect to a new agent run is not a delta.
-# - Pids are as the agent sees them: in the pid namespace of the distro it runs
-#   in, which on WSL is the one every process of the VM is visible from.
+# - `pid` (and parentPid, and the pid in commands) is the kernel's global pid,
+#   in the machine's initial pid namespace. On WSL no shell shows it: every
+#   distro runs in a pid namespace of its own. localPid is the pid inside the
+#   process's own namespace, the one ps there shows.
 # - Kernel threads are not processes here.
 
 interface LinuxAgent {
@@ -67,7 +69,8 @@ interface LinuxAgent {
   # compares at the kernel's USER_HZ resolution, which pid reuse cannot beat.
   # `code` is 0 or an errno: 3 (ESRCH) when the process is gone or the
   # sequence number does not match, 1 (EPERM) or 13 (EACCES) when the agent
-  # may not.
+  # may not. A process outside the agent's own pid namespace (another
+  # distro's) cannot be acted on: 1 (EPERM).
   kill             @5  (meta :Meta.RequestMeta, pid :UInt32, sequenceNumber :UInt64)
                       -> (meta :Meta.ResponseMeta, code :UInt32);
   terminate        @6  (meta :Meta.RequestMeta, pid :UInt32, sequenceNumber :UInt64)
@@ -251,7 +254,7 @@ struct ProcessColumns {
 
   # Counted by the agent's probes from when it first saw the process, and
   # from zero again when the agent restarts; cumulative within one agent run.
-  # file* is VFS reads and writes outside pipes, pipe* on pipes, sendfile the
+  # file* is reads and writes on regular files, pipe* on pipes, sendfile the
   # bytes sendfile(2) moved.
   fileReadOps     @27 :List(UInt64);
   fileWriteOps    @28 :List(UInt64);
