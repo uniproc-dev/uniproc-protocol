@@ -6,7 +6,7 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.5.0";
+const version :Text = "2.5.1";
 
 # Conventions for the whole protocol:
 #
@@ -489,8 +489,10 @@ struct MachineDisk {
   writeBytes @3 :UInt64;
 }
 
-# TCP and UDP payload over the whole machine, cumulative. Per-adapter traffic,
-# headers included, is in MachineSample.networkAdapters.
+# TCP and UDP payload over the whole machine, loopback included, counted from
+# the kernel's TcpIp and UdpIp events since the agent started: the counters
+# start over when the agent restarts, so a delta across a reconnect is not one.
+# Per-adapter traffic, headers included, is in MachineSample.networkAdapters.
 struct MachineNetwork {
   rxBytes @0 :UInt64;
   txBytes @1 :UInt64;
