@@ -3,12 +3,35 @@
 using Meta = import "meta.capnp";
 
 # Semantic version of this protocol; see windows.capnp for the rules.
-const version :Text = "1.0.0";
+const version :Text = "1.1.0";
 
 interface LinuxAgent {
   ping      @0 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta);
   getReport @1 (meta :Meta.RequestMeta) -> (meta :Meta.ResponseMeta, report :Report);
+
+  # Pushes the report to `listener` every `intervalMs` until `handle` is
+  # released or the connection goes away. The first update is the report as
+  # it stands. One call is in flight at a time: while the listener has not
+  # returned, a newer report replaces the pending one, so a slow listener
+  # gets fewer calls, never a queue. An update is only sent when the report
+  # moved since the last one. An error returned by the listener ends the
+  # watch. To change the interval, release the handle and watch again.
+  # intervalMs is clamped to [100, 60000]; 0 means 1000.
+  watch     @2 (meta :Meta.RequestMeta, intervalMs :UInt32, listener :ReportListener)
+            -> (meta :Meta.ResponseMeta, handle :WatchHandle);
 }
+
+# Implemented by the client and called by the agent.
+interface ReportListener {
+  # `etag` is the tag getReport would answer with for this report.
+  update @0 (meta :Meta.RequestMeta, report :Report, etag :UInt64) -> ();
+
+  # The watch stopped for good: the agent is stopping.
+  ended  @1 (meta :Meta.RequestMeta) -> ();
+}
+
+# Released by the client to stop watching; it has no methods.
+interface WatchHandle {}
 
 struct Report {
   machine          @0 :MachineStats;
