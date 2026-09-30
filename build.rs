@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::process::Command;
 
+#[path = "build/meta.rs"]
+mod meta;
+
 const META: &str = "schema/meta.capnp";
 
 const LINKS: &[(&str, &str)] = &[
@@ -31,7 +34,9 @@ fn main() {
         .get_root::<capnp::schema_capnp::code_generator_request::Reader>()
         .expect("code generator request has no root");
 
-    check_every_method_carries_meta(request);
+    if let Err(missing) = meta::check_every_method_carries_meta(request) {
+        panic!("{missing}");
+    }
 
     let mut protocols = String::new();
     for (name, path) in LINKS {
@@ -107,97 +112,4 @@ fn protocol_of(
         panic!("{const_name} = {text:?} is not MAJOR.MINOR.PATCH");
     };
     (file_id, [major, minor, patch])
-}
-
-fn check_every_method_carries_meta(request: capnp::schema_capnp::code_generator_request::Reader) {
-    let nodes = request.get_nodes().expect("request carries no nodes");
-    let find = |id: u64| {
-        nodes
-            .iter()
-            .find(|node| node.get_id() == id)
-            .expect("the request must contain every referenced node")
-    };
-    let struct_field_type_id = |node_id: u64, field: &str| -> Option<u64> {
-        let node = find(node_id);
-        let capnp::schema_capnp::node::Struct(body) = node.which().ok()? else {
-            return None;
-        };
-        let named = body
-            .get_fields()
-            .ok()?
-            .iter()
-            .find(|f| f.get_name().map(|n| n == field).unwrap_or(false))?;
-        let capnp::schema_capnp::field::Slot(slot) = named.which().ok()? else {
-            return None;
-        };
-        match slot.get_type().ok()?.which().ok()? {
-            capnp::schema_capnp::type_::Struct(s) => Some(s.get_type_id()),
-            _ => None,
-        }
-    };
-
-    let meta_ids: Vec<(String, u64)> = nodes
-        .iter()
-        .filter(|node| {
-            matches!(node.which(), Ok(capnp::schema_capnp::node::Struct(_)))
-                && node
-                    .get_display_name()
-                    .map(|n| n.to_str().unwrap_or_default().contains("meta.capnp"))
-                    .unwrap_or(false)
-        })
-        .filter_map(|node| {
-            let name = node.get_display_name().ok()?.to_str().ok()?.to_string();
-            Some((name, node.get_id()))
-        })
-        .collect();
-    let id_of = |suffix: &str| {
-        meta_ids
-            .iter()
-            .find(|(name, _)| name.ends_with(suffix))
-            .unwrap_or_else(|| panic!("{META} must define {suffix}"))
-            .1
-    };
-    let request_meta = id_of("RequestMeta");
-    let response_meta = id_of("ResponseMeta");
-
-    for node in nodes.iter() {
-        let Ok(capnp::schema_capnp::node::Interface(interface)) = node.which() else {
-            continue;
-        };
-        let owner = node
-            .get_display_name()
-            .expect("node has a display name")
-            .to_str()
-            .expect("display name is utf-8")
-            .to_string();
-
-        for method in interface
-            .get_methods()
-            .expect("interface carries methods")
-            .iter()
-        {
-            let name = method
-                .get_name()
-                .expect("method has a name")
-                .to_str()
-                .expect("method name is utf-8")
-                .to_string();
-
-            assert_eq!(
-                struct_field_type_id(method.get_param_struct_type(), "meta"),
-                Some(request_meta),
-                "{owner}.{name} must take `meta :Meta.RequestMeta`"
-            );
-
-            let results = method.get_result_struct_type();
-            if find(results).get_scope_id() == 0 {
-                continue;
-            }
-            assert_eq!(
-                struct_field_type_id(results, "meta"),
-                Some(response_meta),
-                "{owner}.{name} must return `meta :Meta.ResponseMeta`"
-            );
-        }
-    }
 }

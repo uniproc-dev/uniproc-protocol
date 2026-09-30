@@ -6,7 +6,13 @@ using Meta = import "meta.capnp";
 # Appending fields, methods or enumerants is a minor bump; anything else that
 # changes the wire is a major one, and peers on different majors refuse each
 # other. tests/wire_compat.rs holds every change against the last tag.
-const version :Text = "2.5.2";
+#
+# An appended value an older reader cannot decode, a union member, an
+# enumerant or a ResponseStatus, is sent only to a peer whose handshake
+# version has it. A reader that meets one anyway treats an enumerant as
+# `unknown`, a union member as a reason to resync, and a status as an error,
+# never as a reply to cache.
+const version :Text = "2.5.3";
 
 # Conventions for the whole protocol:
 #

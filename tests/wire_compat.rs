@@ -179,6 +179,12 @@ impl<'s, 'a> Diff<'s, 'a> {
 
         let old_methods = old.get_methods().unwrap();
         let new_methods = new.get_methods().unwrap();
+        let names = |list: capnp::struct_list::Reader<'a, capnp::schema_capnp::method::Owned>| {
+            list.iter()
+                .map(|m| m.get_name().unwrap().to_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        moved_names(&names(old_methods), &names(new_methods), &path, &mut self.changes);
         for (index, old_method) in old_methods.iter().enumerate() {
             let Some(new_method) = new_methods.try_get(index as u32) else {
                 self.changes.breaking(format!(
@@ -253,6 +259,14 @@ impl<'s, 'a> Diff<'s, 'a> {
                 self.changes.breaking(format!("{path}.{name} is gone"));
                 continue;
             };
+            let now_there = new_fields[index].get_name().unwrap().to_str().unwrap();
+            if now_there != name
+                && new_fields.iter().any(|f| f.get_name().unwrap().to_str().unwrap() == name)
+            {
+                self.changes.breaking(format!(
+                    "{path}.{name} moved to another ordinal; its old one is now {now_there}"
+                ));
+            }
             matched.insert(index);
             self.field(old_field, new_fields[index], &format!("{path}.{name}"));
         }
@@ -317,11 +331,21 @@ impl<'s, 'a> Diff<'s, 'a> {
             self.changes.breaking(format!("{path}: no longer an enum"));
             return;
         };
-        let (old_len, new_len) = (old.get_enumerants().unwrap().len(), new.get_enumerants().unwrap().len());
-        if new_len < old_len {
-            self.changes.breaking(format!("{path}: enumerants removed"));
-        } else if new_len > old_len && self.seen.insert((old_id, new_id)) {
-            self.changes.additive(format!("{}: enumerants added", self.new.name(new_id)));
+        if !self.seen.insert((old_id, new_id)) {
+            return;
+        }
+        let names = |list: capnp::struct_list::Reader<'a, capnp::schema_capnp::enumerant::Owned>| {
+            list.iter()
+                .map(|e| e.get_name().unwrap().to_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        let (old_names, new_names) = (names(old.get_enumerants().unwrap()), names(new.get_enumerants().unwrap()));
+        let enum_path = self.new.name(new_id);
+        moved_names(&old_names, &new_names, &enum_path, &mut self.changes);
+        if new_names.len() < old_names.len() {
+            self.changes.breaking(format!("{enum_path}: enumerants removed"));
+        } else if new_names.len() > old_names.len() {
+            self.changes.additive(format!("{enum_path}: enumerants added"));
         }
     }
 
@@ -355,6 +379,16 @@ impl<'s, 'a> Diff<'s, 'a> {
         };
         if !same {
             self.changes.breaking(format!("{path}: default value changed"));
+        }
+    }
+}
+
+fn moved_names(old: &[String], new: &[String], owner: &str, changes: &mut Changes) {
+    for (ordinal, name) in old.iter().enumerate() {
+        if let Some(now) = new.iter().position(|n| n == name)
+            && now != ordinal
+        {
+            changes.breaking(format!("{owner}.{name} moved from @{ordinal} to @{now}"));
         }
     }
 }
@@ -429,7 +463,7 @@ fn git(args: &[&str]) -> String {
         .expect("git must be on PATH");
     assert!(
         output.status.success(),
-        "git {} failed: {}\nCI needs the full history and tags (actions/checkout with fetch-depth: 0).",
+        "git {} failed: {}\nThis test needs the full history and tags: actions/checkout with fetch-depth: 0 in CI, `git fetch --unshallow --tags` in a shallow clone.",
         args.join(" "),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -547,6 +581,19 @@ fn anything_else_on_the_wire_is_breaking() {
     ] {
         assert_eq!(level_between(BASE, &new), Level::Breaking, "{new}");
     }
+}
+
+#[test]
+fn an_enumerant_inserted_before_others_is_breaking() {
+    let new = edited("  one @0;\n  two @1;", "  one @0;\n  between @1;\n  two @2;");
+    assert_eq!(level_between(BASE, &new), Level::Breaking);
+}
+
+#[test]
+fn fields_of_one_type_swapping_names_is_breaking() {
+    let old = BASE.replace("  q @1 :Text;", "  q @1 :Text;\n  rx @2 :UInt64;\n  tx @3 :UInt64;");
+    let new = BASE.replace("  q @1 :Text;", "  q @1 :Text;\n  tx @2 :UInt64;\n  rx @3 :UInt64;");
+    assert_eq!(level_between(&old, &new), Level::Breaking);
 }
 
 #[test]

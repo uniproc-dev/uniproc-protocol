@@ -12,6 +12,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # Single OS on purpose. Despite the windows.capnp / linux.capnp schema
   # split, there is no platform-specific *Rust* here - src/ is one lib.rs
@@ -24,13 +27,12 @@ jobs:
     steps:
       # tests/wire_compat.rs compares the schema with the last tag, so it
       # needs the history and the tags, not a shallow clone.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       # build.rs -> capnpc shells out to the `capnp` binary, which is not on
       # the runner image. Without this the build fails in build.rs.
