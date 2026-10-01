@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.6.1";
+const version :Text = "2.7.0";
 
 # Conventions for the whole protocol:
 #
@@ -756,4 +756,13 @@ struct ProcessState {
   # Kernel id of the job object the process belongs to, 0 when it is in none.
   jobObjectId     @6 :UInt32;
   ioPriority      @7 :IoPriority;
+
+  # The process runs a virtual machine on the Windows Hypervisor Platform:
+  # it has loaded WinHvPlatform.dll and holds \Device\VidExo open, the
+  # handle of a VID partition (VMware Workstation and VirtualBox on Hyper-V,
+  # QEMU with WHPX). Its guest RAM is often a mapped file, which the private
+  # working set does not count, so workingSet is the better measure of what it
+  # holds. Off for a process whose shared working set is under 256 MB, which
+  # is not checked; unknown when its modules or handles cannot be read.
+  vmHost          @8 :Toggle;
 }
