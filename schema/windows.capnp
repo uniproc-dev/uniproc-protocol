@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.5.3";
+const version :Text = "2.6.0";
 
 # Conventions for the whole protocol:
 #
@@ -218,6 +218,8 @@ enum ProcessMetric {
   gpuDedicated      @35;
   gpuShared         @36;
   gpuEngines        @37;
+
+  exclusiveMapped   @38;
 }
 
 # Process metrics as columns: `pids`, `sequenceNumbers` and every non-null
@@ -320,6 +322,16 @@ struct ProcessColumns {
   # apart. Task Manager's GPU column is the busiest engine's share of wall
   # time over an interval, and its GPU engine column names that engine.
   gpuEngines        @42 :List(ProcessGpuEngine);
+
+  # Bytes of the working set in pages backed by a section (mapped files,
+  # images, pagefile-backed shared memory) that no other process has in its
+  # working set: QueryWorkingSet pages with Shared and ShareCount 1. Standby
+  # and modified pages are not counted. privateWorkingSet + exclusiveMapped is
+  # roughly what the process alone holds in memory. Probed in turns, each process
+  # again within 10 s, so a row can be that much older than sampledAt. A
+  # process whose working set cannot be read (protected, access denied) holds
+  # the maximum.
+  exclusiveMapped   @43 :List(UInt64);
 }
 
 struct ProcessGpuEngine {
