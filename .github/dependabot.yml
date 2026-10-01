@@ -19,6 +19,8 @@ updates:
       - dependency-name: "shown"
       - dependency-name: "windows-reactor*"
       - dependency-name: "windows-canvas*"
+      - dependency-name: "capnp*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       cargo:
         patterns: ["*"]
