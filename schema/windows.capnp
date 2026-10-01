@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.6.0";
+const version :Text = "2.6.1";
 
 # Conventions for the whole protocol:
 #
@@ -327,10 +327,13 @@ struct ProcessColumns {
   # images, pagefile-backed shared memory) that no other process has in its
   # working set: QueryWorkingSet pages with Shared and ShareCount 1. Standby
   # and modified pages are not counted. privateWorkingSet + exclusiveMapped is
-  # roughly what the process alone holds in memory. Probed in turns, each process
-  # again within 10 s, so a row can be that much older than sampledAt. A
-  # process whose working set cannot be read (protected, access denied) holds
-  # the maximum.
+  # roughly what the process alone holds in memory. Probed as the process
+  # shows up, when its shared working set (workingSet - privateWorkingSet)
+  # moves by 4 MB or a twentieth, and at least every 5 minutes, so a row can
+  # be that much older than sampledAt. A row holds the maximum until its
+  # process is first probed and when its working set cannot be read
+  # (protected, access denied); every row does when the agent is not
+  # elevated, since Windows tells share counts only to an elevated caller.
   exclusiveMapped   @43 :List(UInt64);
 }
 
