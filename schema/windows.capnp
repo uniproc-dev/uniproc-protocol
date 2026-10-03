@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.7.0";
+const version :Text = "2.8.0";
 
 # Conventions for the whole protocol:
 #
@@ -94,6 +94,110 @@ interface WindowsAgent {
   # the watch.
   watch            @16 (meta :Meta.RequestMeta, spec :MetricSpec, listener :AgentListener)
                       -> (meta :Meta.ResponseMeta, handle :WatchHandle);
+
+  # Calls listener.events with the process starts and exits the agent still
+  # holds, oldest first, then with each new one as it happens, until `handle`
+  # is released or the connection goes away. The agent keeps recent events,
+  # about the last hour within a few MB; the first batch's historyFrom says
+  # exactly where they begin. The held events may come in several batches, each
+  # well under a reader's traversal limit. One call is in flight at a time:
+  # events that come while the listener has not returned go out together in
+  # the next call. An error returned by the listener ends the watch.
+  watchProcessEvents @17 (meta :Meta.RequestMeta, listener :ProcessEventListener)
+                        -> (meta :Meta.ResponseMeta, handle :WatchHandle);
+}
+
+# Implemented by the client and called by the agent, like AgentListener.
+interface ProcessEventListener {
+  events @0 (meta :Meta.RequestMeta, batch :ProcessEventBatch) -> ();
+
+  # The watch stopped for good: the agent is stopping.
+  ended  @1 (meta :Meta.RequestMeta) -> ();
+}
+
+struct ProcessEventBatch {
+  # In the first batch only, 0 after it: the FILETIME from which on nothing is
+  # missing, either the agent's start or the oldest event it still held.
+  historyFrom @0 :UInt64;
+
+  # In order of time.
+  events      @1 :List(ProcessEvent);
+
+  # Events missing since the previous batch, 0 normally: dropped by the kernel
+  # (ETW buffers full) or by the agent, when a listener fell so far behind that
+  # events left the agent's hold before they were sent.
+  lost        @2 :UInt32;
+}
+
+struct ProcessEvent {
+  # The instance, as in ProcessInfo.
+  pid            @0 :UInt32;
+  sequenceNumber @1 :UInt64;
+
+  # The start or the exit, as a FILETIME (100 ns since 1601, UTC).
+  time           @2 :UInt64;
+
+  union {
+    started @3 :ProcessStarted;
+    exited  @4 :ProcessExited;
+  }
+}
+
+struct ProcessStarted {
+  parentPid            @0 :UInt32;
+
+  # 0 when not known (the parent is the System Idle Process).
+  parentSequenceNumber @1 :UInt64;
+
+  sessionId            @2 :UInt32;
+
+  # Win32 path; the NT path when no drive letter maps to it.
+  imagePath            @3 :Text;
+
+  # As the process was created, unparsed: unlike ProcessInfo.cmdline it keeps
+  # the quoting. Empty when the kernel's event did not come.
+  commandLine          @4 :Text;
+
+  # DOMAIN\name of the token's user; the SID string when it does not resolve.
+  user                 @5 :Text;
+
+  elevated             @6 :Toggle;
+  packageFullName      @7 :Text;
+
+  # Read from the process after it started. Empty when it exited first or
+  # could not be read: short-lived processes usually have none.
+  workingDirectory     @8 :Text;
+
+  # Path of the Task Scheduler task that started it, like
+  # \Microsoft\Windows\UpdateOrchestrator\Schedule Scan. Empty otherwise.
+  scheduledTask        @9 :Text;
+
+  # Services hosted by the parent when the process started: a process a
+  # service launched names that service. Empty otherwise.
+  parentServices       @10 :List(Text);
+}
+
+# Totals over the process's whole life, as the kernel reports them at exit.
+# The names follow ProcessColumns.
+struct ProcessExited {
+  exitCode     @0 :UInt32;
+
+  # CPU cycles, not time: the kernel reports cycles here.
+  cpuCycles    @1 :UInt64;
+
+  # All I/O the process issued, as ioReadOps and its neighbours count it. The
+  # kernel counts the bytes in KiB; they go out in bytes, so in steps of 1024.
+  ioReadOps    @2 :UInt64;
+  ioWriteOps   @3 :UInt64;
+  ioReadBytes  @4 :UInt64;
+  ioWriteBytes @5 :UInt64;
+
+  peakCommit   @6 :UInt64;
+
+  # Handles open at exit.
+  handles      @7 :UInt32;
+
+  hardFaults   @8 :UInt32;
 }
 
 # Implemented by the client and called by the agent, like ServiceWatcher.
