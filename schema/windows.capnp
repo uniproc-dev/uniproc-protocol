@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.8.0";
+const version :Text = "2.9.0";
 
 # Conventions for the whole protocol:
 #
@@ -198,6 +198,22 @@ struct ProcessExited {
   handles      @7 :UInt32;
 
   hardFaults   @8 :UInt32;
+
+  # Who exited, for a process that started before historyFrom and so has no
+  # start in the stream.
+  #
+  # Win32 path of the image, from the agent's process list or the start it
+  # saw. Empty when the agent never knew the process whole.
+  imagePath    @9 :Text;
+
+  # File name of the image as the kernel keeps it for the exit (EPROCESS
+  # ImageFileName): always present, cut by the kernel to its first 14
+  # characters.
+  imageName    @10 :Text;
+
+  # Creation time as a FILETIME (100 ns since 1601, UTC), like
+  # ProcessInfo.startTime. 0 when unknown.
+  startTime    @11 :UInt64;
 }
 
 # Implemented by the client and called by the agent, like ServiceWatcher.
