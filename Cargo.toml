@@ -12,3 +12,15 @@ capnp-rpc = "0.27"
 [build-dependencies]
 capnp = "0.27"
 capnpc = "0.27"
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.release]
+debug = 0
+
+[profile.bench]
+debug = 0
