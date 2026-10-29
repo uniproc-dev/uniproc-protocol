@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.9.0";
+const version :Text = "2.10.0";
 
 # Conventions for the whole protocol:
 #
@@ -774,6 +774,20 @@ struct ServiceStats {
   # Needed to tell a Windows service from a third-party one; the app cannot
   # read it for every service because it runs unelevated.
   imagePath    @6 :Text;
+  startupType  @7 :ServiceStartupType;
+  delayedAuto  @8 :Bool;
+  account      @9 :Text;
+  serviceType  @10 :UInt32;
+  acceptedControls @11 :UInt32;
+}
+
+enum ServiceStartupType {
+  unknown   @0;
+  boot      @1;
+  system    @2;
+  automatic @3;
+  manual    @4;
+  disabled  @5;
 }
 
 enum ServiceState {
