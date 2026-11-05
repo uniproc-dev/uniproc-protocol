@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.12.0";
+const version :Text = "2.13.0";
 
 # Conventions for the whole protocol:
 #
@@ -340,6 +340,7 @@ enum ProcessMetric {
   gpuEngines        @37;
 
   exclusiveMapped   @38;
+  vmWorkingSet      @39;
 }
 
 # Process metrics as columns: `pids`, `sequenceNumbers` and every non-null
@@ -455,6 +456,13 @@ struct ProcessColumns {
   # (protected, access denied); every row does when the agent is not
   # elevated, since Windows tells share counts only to an elevated caller.
   exclusiveMapped   @43 :List(UInt64);
+
+  # Heuristic resident working set in bytes for VM hosts only. For full
+  # VMware .vmem views with the same file identity and size, retain the first
+  # view and omit subsequent duplicate full views. This is not PFN-level
+  # unique physical memory. Raw workingSet is unchanged. Null when not
+  # requested or unsupported by the peer; UInt64 maximum for unavailable rows.
+  vmWorkingSet      @44 :List(UInt64);
 }
 
 struct ProcessGpuEngine {
