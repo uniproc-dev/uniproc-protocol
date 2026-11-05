@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.10.0";
+const version :Text = "2.11.0";
 
 # Conventions for the whole protocol:
 #
@@ -480,6 +480,7 @@ enum MachineMetric {
   processors @4;
   gpu        @5;
   networkAdapters @6;
+  temperatures @7;
 }
 
 struct MachineSample {
@@ -501,6 +502,45 @@ struct MachineSample {
   # The adapters that are up, minus loopback, tunnels and the NDIS filter
   # layers stacked on an adapter, which repeat its counters.
   networkAdapters @8 :List(NetworkAdapter);
+  temperatures @9 :TemperatureSample;
+}
+
+struct TemperatureSample {
+  status @0 :TemperatureStatus;
+  error @1 :Text;
+  devices @2 :List(TemperatureDevice);
+}
+
+enum TemperatureStatus {
+  unknown @0;
+  available @1;
+  unavailable @2;
+  error @3;
+}
+
+enum TemperatureCategory {
+  unknown @0;
+  cpu @1;
+  gpu @2;
+  memory @3;
+  storage @4;
+}
+
+struct TemperatureDevice {
+  id @0 :Text;
+  name @1 :Text;
+  category @2 :TemperatureCategory;
+  status @3 :TemperatureStatus;
+  sensors @4 :List(TemperatureSensor);
+}
+
+struct TemperatureSensor {
+  id @0 :Text;
+  name @1 :Text;
+  reading :union {
+    unavailable @2 :Void;
+    celsius @3 :Float64;
+  }
 }
 
 struct NetworkAdapter {
