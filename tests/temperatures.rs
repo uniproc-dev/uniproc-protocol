@@ -1,5 +1,6 @@
 use uniproc_protocol::windows_capnp::{
-    TemperatureCategory, TemperatureStatus, machine_sample, temperature_sample, temperature_sensor,
+    TemperatureCategory, TemperatureStatus, machine_sample, temperature_device, temperature_sample,
+    temperature_sensor,
 };
 
 #[test]
@@ -23,6 +24,34 @@ fn old_machine_sample_has_unknown_temperatures() {
     );
     assert!(temperatures.get_error().unwrap().is_empty());
     assert!(temperatures.get_devices().unwrap().is_empty());
+}
+
+#[test]
+fn old_temperature_device_has_no_diagnostic() {
+    let bytes: Vec<u8> = [5_u64 << 32, (3_u64 << 48) | (1_u64 << 32), 0, 0, 0, 0]
+        .into_iter()
+        .flat_map(u64::to_le_bytes)
+        .collect();
+    let message =
+        capnp::serialize::read_message(&mut bytes.as_slice(), capnp::message::ReaderOptions::new())
+            .unwrap();
+    let device = message.get_root::<temperature_device::Reader>().unwrap();
+    assert!(device.get_error().unwrap().is_empty());
+}
+
+#[test]
+fn device_error_survives_serialization() {
+    let mut message = capnp::message::Builder::new_default();
+    let mut device = message.init_root::<temperature_device::Builder>();
+    device.set_status(TemperatureStatus::Error);
+    device.set_error("temperature read failed");
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let decoded =
+        capnp::serialize::read_message(&mut bytes.as_slice(), capnp::message::ReaderOptions::new())
+            .unwrap();
+    let device = decoded.get_root::<temperature_device::Reader>().unwrap();
+    assert_eq!(device.get_status().unwrap(), TemperatureStatus::Error);
+    assert_eq!(device.get_error().unwrap(), "temperature read failed");
 }
 
 #[test]
