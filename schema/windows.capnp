@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.13.0";
+const version :Text = "2.14.0";
 
 # Conventions for the whole protocol:
 #
@@ -511,6 +511,7 @@ struct MachineSample {
   # layers stacked on an adapter, which repeat its counters.
   networkAdapters @8 :List(NetworkAdapter);
   temperatures @9 :TemperatureSample;
+  cpuName @10 :Text;
 }
 
 struct TemperatureSample {
