@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.15.0";
+const version :Text = "2.16.0";
 
 # Conventions for the whole protocol:
 #
@@ -534,6 +534,23 @@ struct CpuInventory {
   virtualizationHardwareSupported @7 :Toggle;
   virtualizationFirmwareEnabled @8 :Toggle;
   hypervisorPresent @9 :Toggle;
+  details @10 :CpuDetails;
+}
+
+struct CpuDetails {
+  vendor @0 :Text;
+  family @1 :UInt32 = 4294967295;
+  model @2 :UInt32 = 4294967295;
+  stepping @3 :UInt32 = 4294967295;
+  microcodeRevision @4 :UInt64 = 18446744073709551615;
+  instructionSets @5 :List(Text);
+  instructionSetsSemantics @6 :CpuInstructionSetSemantics;
+  instructionSetsScope @7 :Text;
+}
+
+enum CpuInstructionSetSemantics {
+  unknown @0;
+  osUsable @1;
 }
 
 struct TemperatureSample {
