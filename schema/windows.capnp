@@ -12,7 +12,7 @@ using Meta = import "meta.capnp";
 # version has it. A reader that meets one anyway treats an enumerant as
 # `unknown`, a union member as a reason to resync, and a status as an error,
 # never as a reply to cache.
-const version :Text = "2.17.1";
+const version :Text = "2.18.0";
 
 # Conventions for the whole protocol:
 #
@@ -713,6 +713,28 @@ struct MachineMemory {
   # The commit limit (RAM plus page files) and the commit charge now.
   commitLimit       @2 :UInt64;
   committed         @3 :UInt64;
+  details           @4 :MemoryDetails;
+  inventory         @5 :MemoryInventory;
+}
+
+struct MemoryDetails {
+  compressed @0 :UInt64 = 18446744073709551615;
+  cached @1 :UInt64 = 18446744073709551615;
+  pagedPool @2 :UInt64 = 18446744073709551615;
+  nonPagedPool @3 :UInt64 = 18446744073709551615;
+  standby @4 :UInt64 = 18446744073709551615;
+  modified @5 :UInt64 = 18446744073709551615;
+  free @6 :UInt64 = 18446744073709551615;
+  installed @7 :UInt64 = 18446744073709551615;
+}
+
+struct MemoryInventory {
+  memoryType @0 :UInt32 = 4294967295;
+  speedMtS @1 :UInt32 = 4294967295;
+  slotsUsed @2 :UInt32 = 4294967295;
+  slotsTotal @3 :UInt32 = 4294967295;
+  formFactor @4 :UInt32 = 4294967295;
+  hardwareReserved @5 :UInt64 = 18446744073709551615;
 }
 
 # All physical disks together, cumulative.
